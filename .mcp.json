@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "isv-dict": {
+      "command": "node",
+      "args": ["src/mcp.js"]
+    }
+  }
+}

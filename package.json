@@ -1,0 +1,24 @@
+{
+  "name": "local-isv-dict",
+  "version": "0.1.0",
+  "description": "Local Interslavic dictionary lookup for LLMs: CLI, HTTP API and MCP server",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "isv-dict": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "update": "node src/cli.js update",
+    "serve": "node src/cli.js serve",
+    "mcp": "node src/mcp.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@interslavic/utils": "3.4.4",
+    "@modelcontextprotocol/server": "^2.2.0",
+    "zod": "^4.2.0"
+  }
+}
