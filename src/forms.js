@@ -394,7 +394,9 @@ export function derivedEntries(entries) {
         }
     }
 
-    const derived = new Map()
+    // a group of verbs and their verbal nouns; groups that share a noun are merged, so that
+    // "ogluhnuti, oglušeti" and "oglušiti" give one entry "ogluhnutje, oglušenje", not two
+    const groupOf = new Map() // isvStd of a noun → its group
 
     for (const entry of entries) {
         if (entry.removed || safeParsePos(entry.pos)?.name !== 'verb') {
@@ -402,7 +404,7 @@ export function derivedEntries(entries) {
         }
 
         // "vladati, vlåděti" has two verbal nouns, written as headword variants the way the sheet does
-        const variants = new Set()
+        const variants = new Map()
 
         for (const paradigm of paradigms(entry).list) {
             // "iměti pravdų": the library builds the verbal noun of "iměti" alone
@@ -410,7 +412,7 @@ export function derivedEntries(entries) {
             const lemma = text && toScript(text, 'etymological')
 
             if (lemma && !nouns.has(isvStd(lemma))) {
-                variants.add(lemma)
+                variants.set(isvStd(lemma), lemma)
             }
         }
 
@@ -418,11 +420,25 @@ export function derivedEntries(entries) {
             continue
         }
 
-        const isv = [...variants].join(', ')
-        const key = isvStd(isv)
-        const noun = derived.get(key) ?? {
-            id: -entry.id,
-            isv,
+        const [group, ...others] = new Set([...variants.keys()].map((key) => groupOf.get(key)).filter(Boolean))
+        const target = group ?? { variants: new Map(), verbs: [] }
+
+        for (const other of others) {
+            other.variants.forEach((lemma, key) => target.variants.set(key, lemma))
+            target.verbs.push(...other.verbs)
+        }
+
+        variants.forEach((lemma, key) => target.variants.set(key, lemma))
+        target.verbs.push({ id: entry.id, isv: entry.isv })
+        target.variants.forEach((lemma, key) => groupOf.set(key, target))
+    }
+
+    return [...new Set(groupOf.values())].map(({ variants, verbs }) => {
+        const from = verbs.sort((a, b) => a.id - b.id)
+
+        return {
+            id: -from[0].id,
+            isv: [...variants.values()].join(', '),
             removed: false,
             addition: '',
             pos: 'n.',
@@ -430,14 +446,9 @@ export function derivedEntries(entries) {
             frequency: null,
             intelligibility: '',
             tr: {},
-            derived: { kind: 'verbal noun', from: [] },
+            derived: { kind: 'verbal noun', from },
         }
-
-        noun.derived.from.push({ id: entry.id, isv: entry.isv })
-        derived.set(key, noun)
-    }
-
-    return [...derived.values()]
+    }).sort((a, b) => b.id - a.id)
 }
 
 /**

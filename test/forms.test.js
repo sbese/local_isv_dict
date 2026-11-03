@@ -245,6 +245,9 @@ test('derivedEntries: the verbal noun of every verb the dictionary has no noun f
         verb(6, 'biti', 'v.tr. ipf.', { removed: true }),
         verb(7, 'kovati'),
         { id: 8, isv: 'kovańje', pos: 'n.', addition: '', tr: {} },
+        // shares "oglušeńje" with the verb before it, and the nouns of both join one entry
+        verb(9, 'ogluhnųti, oglušeti', 'v.intr. pf.'),
+        verb(10, 'oglušiti', 'v.tr. pf.'),
     ])
     const summary = derived.map((entry) => [entry.id, entry.isv, entry.pos, entry.derived.from.map((source) => source.id)])
 
@@ -253,6 +256,7 @@ test('derivedEntries: the verbal noun of every verb the dictionary has no noun f
         [-1, 'pisańje', 'n.', [1]],
         [-2, 'učeńje', 'n.', [2, 3]],
         [-4, 'vladańje, vlåděńje', 'n.', [4]],
+        [-9, 'ogluhnųťje, oglušeńje', 'n.', [9, 10]],
     ])
     assert.deepEqual(derived[0].tr, {})
     assert.equal(derived[0].derived.kind, 'verbal noun')
