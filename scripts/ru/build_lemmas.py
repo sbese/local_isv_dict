@@ -23,6 +23,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -116,10 +117,14 @@ def is_infinitive(word):
 def write_atomically(path, lines):
     """Writes a temporary file next to `path` and renames it, so a failed run leaves the old file whole."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + '.tmp')
-    with temporary.open('w', encoding='utf-8') as file:
-        file.writelines(lines)
-    temporary.replace(path)
+    with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=path.parent, prefix=f'.{path.name}.',
+                                     delete=False) as file:
+        try:
+            file.writelines(lines)
+        except BaseException:
+            Path(file.name).unlink()
+            raise
+    Path(file.name).replace(path)
 
 
 def export_entries():
@@ -206,6 +211,7 @@ def main():
 
     stale = []
     doubtful = []  # generated words pymorphy does not know
+    corrected = set()  # entries a supplement line gave a lemma to
     for row in supplement:
         ids = target_ids(row['target'])
         if not ids:
@@ -219,6 +225,7 @@ def main():
                 doubtful.append(f"{row['target']} {variant}")
             for lemma in dict_lemmas(word):
                 add(lemma, entry_id, 'generated')
+            corrected.add(entry_id)
 
     if stale:
         # the list would lack their words, so the previous one is kept
@@ -226,7 +233,8 @@ def main():
         print(f'Fix their `target` (see the README); {args.out} is left as it was.', file=sys.stderr)
         sys.exit(1)
 
-    unknown = [item for item in unknown if item['id'] not in supplied]
+    # a correction that is a phrase ("куда угодно") gives no lemma, so its word stays on the list
+    unknown = [item for item in unknown if item['id'] not in corrected]
 
     out = Path(args.out)
     write_atomically(out, ['lemma\tids\tsources\n'] + [

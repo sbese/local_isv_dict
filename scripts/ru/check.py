@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -23,6 +24,8 @@ import pymorphy3
 
 ROOT = Path(__file__).resolve().parents[2]
 ACCENTS = str.maketrans('', '', chr(0x301) + chr(0x300))
+# hyphen, non-breaking hyphen, minus → "-", as in src/text.js; dashes are left alone: they separate words
+HYPHENS = str.maketrans({chr(0x2010): '-', chr(0x2011): '-', chr(0x2212): '-'})
 WORD = re.compile(r'[а-яё]+(?:-[а-яё]+)*', re.IGNORECASE)
 
 DATA = Path(os.environ.get('ISV_DICT_DATA_DIR') or ROOT / 'data').resolve()  # as in src/data.js
@@ -37,6 +40,14 @@ PROPER = {'Name', 'Surn', 'Patr', 'Geox', 'Orgn', 'Trad'}
 
 def norm(text):
     return text.lower().translate(ACCENTS).replace('ё', 'е')
+
+
+def prepare(text):
+    """Before splitting into words: "мо́ре" is one word, and so are "по‑русски" with a non-breaking
+    hyphen and "й" written as "и" + a combining breve. Stress marks go first, as NFC would turn
+    "е" + a grave into "ѐ"."""
+    text = unicodedata.normalize('NFC', text.translate(ACCENTS)).translate(HYPHENS)
+    return ''.join(char for char in text if unicodedata.category(char) not in ('Cf', 'Co'))
 
 
 def load_lemmas(path):
@@ -58,7 +69,7 @@ def main():
     skip = {tag for tag in args.skip.split(',') if tag}
     morph = pymorphy3.MorphAnalyzer()
     text = '\n'.join(Path(name).read_text(encoding='utf-8') for name in args.files) if args.files else sys.stdin.read()
-    text = text.translate(ACCENTS)  # before splitting into words: "мо́ре" is one word
+    text = prepare(text)
 
     missing = defaultdict(Counter)  # most likely lemma → the words of the text it stands for
     total = 0

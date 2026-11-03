@@ -62,6 +62,11 @@ class CheckTest(unittest.TestCase):
     def test_stressed_word_is_one_word(self):
         self.assertEqual(self.check(f'мо{STRESS}ре'), [])
 
+    def test_unicode_hyphens_and_combining_letters(self):
+        lemmas = ('по-русски', 'из-за', 'мой', 'все')
+        self.assertEqual(self.check(f'по{chr(0x2011)}русски из{chr(0x2212)}за', lemmas=lemmas), [])
+        self.assertEqual(self.check(f'мои{chr(0x306)} вс{chr(0x435)}{chr(0x300)}', lemmas=lemmas), [])
+
     def test_names_are_skipped_only_when_capitalized(self):
         self.assertEqual(self.check('Роза и Вера'), ['и'])
         self.assertEqual(self.check('роза'), ['роза'])
