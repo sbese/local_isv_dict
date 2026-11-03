@@ -211,7 +211,7 @@ def main():
 
     stale = []
     doubtful = []  # generated words pymorphy does not know
-    corrected = set()  # entries a supplement line gave a lemma to
+    corrected = defaultdict(list)  # entry id → the words supplement lines gave it
     for row in supplement:
         ids = target_ids(row['target'])
         if not ids:
@@ -225,7 +225,7 @@ def main():
                 doubtful.append(f"{row['target']} {variant}")
             for lemma in dict_lemmas(word):
                 add(lemma, entry_id, 'generated')
-            corrected.add(entry_id)
+            corrected[entry_id].append(variant)
 
     if stale:
         # the list would lack their words, so the previous one is kept
@@ -233,8 +233,11 @@ def main():
         print(f'Fix their `target` (see the README); {args.out} is left as it was.', file=sys.stderr)
         sys.exit(1)
 
-    # a correction that is a phrase ("куда угодно") gives no lemma, so its word stays on the list
-    unknown = [item for item in unknown if item['id'] not in corrected]
+    # an entry may have several unknown words and a correction of only one ("казаческий, козаческий"
+    # → "казачий"), so its words stay on the list, marked; a phrase ("куда угодно") gives no lemma
+    for item in unknown:
+        if item['id'] in corrected:
+            item['supplement'] = corrected[item['id']]
 
     out = Path(args.out)
     write_atomically(out, ['lemma\tids\tsources\n'] + [
@@ -250,7 +253,9 @@ def main():
     print(f"{len(lemmas)} lemmas → {out}", file=sys.stderr)
     print('  by source: ' + ', '.join(f'{source} {count}' for source, count in sorted(counts.items())), file=sys.stderr)
     print(f'  verbal nouns left for the model: {len(todo_nouns)} (data/ru_todo_verbal_nouns.jsonl)', file=sys.stderr)
-    print(f'  translations pymorphy does not know: {len(unknown)} (data/ru_unknown.jsonl)', file=sys.stderr)
+    marked = sum('supplement' in item for item in unknown)
+    print(f'  translations pymorphy does not know: {len(unknown)}, of them {marked} in entries the supplement '
+          'corrects (data/ru_unknown.jsonl)', file=sys.stderr)
     if doubtful:
         print(f'  generated words pymorphy does not know: {len(doubtful)}: {", ".join(doubtful[:10])}', file=sys.stderr)
 
