@@ -113,6 +113,15 @@ def is_infinitive(word):
     return any(parse.tag.POS == 'INFN' for parse in morph.parse(word))
 
 
+def write_atomically(path, lines):
+    """Writes a temporary file next to `path` and renames it, so a failed run leaves the old file whole."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + '.tmp')
+    with temporary.open('w', encoding='utf-8') as file:
+        file.writelines(lines)
+    temporary.replace(path)
+
+
 def export_entries():
     result = subprocess.run(['node', str(ROOT / 'scripts' / 'ru' / 'export-entries.js')],
                             capture_output=True, text=True, check=True)
@@ -211,19 +220,20 @@ def main():
             for lemma in dict_lemmas(word):
                 add(lemma, entry_id, 'generated')
 
+    if stale:
+        # the list would lack their words, so the previous one is kept
+        print(f'Supplement lines matching no entry: {len(stale)}: {", ".join(stale[:10])}', file=sys.stderr)
+        print(f'Fix their `target` (see the README); {args.out} is left as it was.', file=sys.stderr)
+        sys.exit(1)
+
     unknown = [item for item in unknown if item['id'] not in supplied]
 
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open('w', encoding='utf-8') as file:
-        file.write('lemma\tids\tsources\n')
-        for lemma in sorted(lemmas):
-            info = lemmas[lemma]
-            file.write(f"{lemma}\t{','.join(map(str, sorted(info['ids'])))}\t{','.join(sorted(info['sources']))}\n")
-
+    write_atomically(out, ['lemma\tids\tsources\n'] + [
+        f"{lemma}\t{','.join(map(str, sorted(info['ids'])))}\t{','.join(sorted(info['sources']))}\n"
+        for lemma, info in sorted(lemmas.items())])
     for name, items in (('ru_todo_verbal_nouns.jsonl', todo_nouns), ('ru_unknown.jsonl', unknown)):
-        with (DATA / name).open('w', encoding='utf-8') as file:
-            file.writelines(json.dumps(item, ensure_ascii=False) + '\n' for item in items)
+        write_atomically(DATA / name, [json.dumps(item, ensure_ascii=False) + '\n' for item in items])
 
     counts = defaultdict(int)
     for info in lemmas.values():
@@ -235,10 +245,6 @@ def main():
     print(f'  translations pymorphy does not know: {len(unknown)} (data/ru_unknown.jsonl)', file=sys.stderr)
     if doubtful:
         print(f'  generated words pymorphy does not know: {len(doubtful)}: {", ".join(doubtful[:10])}', file=sys.stderr)
-    if stale:
-        print(f'  supplement lines matching no entry: {len(stale)}: {", ".join(stale[:10])}', file=sys.stderr)
-        print('  their words are not in the list; fix their `target` (see the README)', file=sys.stderr)
-        sys.exit(1)
 
 
 if __name__ == '__main__':
