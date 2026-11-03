@@ -229,6 +229,25 @@ test('forms handler: headword, inflected form, id', () => {
     assert.equal(result.entries[3].forms[0].verbalNoun, 'pisanje')
 })
 
+test('a verbal noun the dictionary lacks is a derived entry that declines and names its verb', () => {
+    const result = forms(dict, 'pisanjem, učenje')
+    const [pisanje, ucenje] = result.entries
+
+    assert.deepEqual(result.queries[0].matches[0], { id: -141, isv: 'pisanje', via: ['isv form: sg.ins'] })
+    assert.deepEqual(Object.keys(pisanje), ['id', 'isv', 'pos', 'posInfo', 'derived', 'forms'])
+    assert.equal(pisanje.derived, 'verbal noun of pisati (id 141); not a dictionary entry, built from the verb')
+    assert.equal(pisanje.forms[0].pl.gen, 'pisanij')
+    assert.match(ucenje.derived, /of učiti \(id 1526\), učiti se \(id 1531\)/)
+
+    // lookup: the derived noun has no translations, the verb it comes from is listed next to it
+    const found = lookup(dict, 'pisanje', { from: 'isv' })
+
+    assert.deepEqual(ids(found.queries[0].matches).slice(0, 2), [-141, 141])
+    assert.equal('translations' in found.entries[0], false)
+    assert.equal(found.entries[0].derived, pisanje.derived)
+    assert.deepEqual(ids(lookup(dict, 'id:-141').entries), [-141])
+})
+
 test('forms handler looks only at Interslavic and says so when nothing is found', () => {
     const result = forms(dict, 'собака, dog')
 

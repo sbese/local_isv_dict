@@ -14,7 +14,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 
 import { DATA_DIR, loadSource, update } from './data.js'
-import { paradigms, searchableForms } from './forms.js'
+import { derivedEntries, paradigms, searchableForms } from './forms.js'
 import { LANGS, fold, isvKey, lemmaVariants, splitVariants } from './text.js'
 
 const INDEX_FILE = 'index.json'
@@ -161,7 +161,7 @@ async function readIndex(dataDir, sha) {
         const saved = JSON.parse(await readFile(path.join(dataDir, INDEX_FILE), 'utf8'))
 
         if (saved.version === INDEX_VERSION && saved.library === LIBRARY_VERSION && saved.sha === sha) {
-            return { tr: deserialize(saved.tr), isv: deserialize(saved.isv) }
+            return { tr: deserialize(saved.tr), isv: deserialize(saved.isv), derived: saved.derived }
         }
     } catch {
         // no usable cache — it will be rebuilt
@@ -178,6 +178,7 @@ async function writeIndex(dataDir, sha, index) {
         sha,
         tr: serialize(index.tr),
         isv: serialize(index.isv),
+        derived: index.derived,
     }
 
     // several processes (CLI, MCP, HTTP) may build the index at the same moment
@@ -236,16 +237,22 @@ async function load({ dataDir = DATA_DIR, log = () => {}, download = false } = {
 
     if (!index) {
         log(`Building the search index for ${entries.length} entries…`)
-        index = buildIndex(entries)
+
+        // derived entries take part in the search like any other, so they are made together with
+        // the index and saved with it
+        const derived = derivedEntries(entries)
+
+        index = { ...buildIndex([...entries, ...derived]), derived }
         await writeIndex(dataDir, sha, index)
         log('The search index is ready.')
     }
 
-    return createDict(entries, index, {
+    return createDict([...entries, ...index.derived], index, {
         dataDir,
         downloadedAt: meta?.downloadedAt ?? null,
         source: meta?.source ?? null,
         entries: entries.length,
+        derivedEntries: index.derived.length,
         library: `@interslavic/utils ${LIBRARY_VERSION}`,
     })
 }

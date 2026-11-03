@@ -376,6 +376,71 @@ export function paradigms(entry) {
 }
 
 /**
+ * Entries the dictionary does not have but the declension library implies: the verbal noun of
+ * every verb ("zakryti" → "zakryťje"), unless the dictionary already has that noun. Homonymous
+ * verbs and "učiti" / "učiti sę" share one verbal noun, so one entry may come from several verbs.
+ *
+ * A derived entry has a negative id (minus the id of its first verb), no translations of its own
+ * and `derived: {kind, from: [{id, isv}]}`; otherwise it is an ordinary entry.
+ * @param {import('./data.js').Entry[]} entries
+ * @returns {import('./data.js').Entry[]}
+ */
+export function derivedEntries(entries) {
+    const nouns = new Set()
+
+    for (const entry of entries) {
+        if (safeParsePos(entry.pos)?.name === 'noun') {
+            lemmaVariants(entry.isv).forEach((variant) => nouns.add(isvStd(variant)))
+        }
+    }
+
+    const derived = new Map()
+
+    for (const entry of entries) {
+        if (entry.removed || safeParsePos(entry.pos)?.name !== 'verb') {
+            continue
+        }
+
+        // "vladati, vlåděti" has two verbal nouns, written as headword variants the way the sheet does
+        const variants = new Set()
+
+        for (const paradigm of paradigms(entry).list) {
+            // "iměti pravdų": the library builds the verbal noun of "iměti" alone
+            const text = paradigm.searchable && paradigm.cells.find((cell) => cell.slot === 'verbalNoun')?.text
+            const lemma = text && toScript(text, 'etymological')
+
+            if (lemma && !nouns.has(isvStd(lemma))) {
+                variants.add(lemma)
+            }
+        }
+
+        if (!variants.size) {
+            continue
+        }
+
+        const isv = [...variants].join(', ')
+        const key = isvStd(isv)
+        const noun = derived.get(key) ?? {
+            id: -entry.id,
+            isv,
+            removed: false,
+            addition: '',
+            pos: 'n.',
+            type: '',
+            frequency: null,
+            intelligibility: '',
+            tr: {},
+            derived: { kind: 'verbal noun', from: [] },
+        }
+
+        noun.derived.from.push({ id: entry.id, isv: entry.isv })
+        derived.set(key, noun)
+    }
+
+    return [...derived.values()]
+}
+
+/**
  * The single forms written in a cell: "mene (mę)" → mene, mę; "(n)jego (go)" → jego, njego, go;
  * "slova / slovesa" → slova, slovesa.
  */

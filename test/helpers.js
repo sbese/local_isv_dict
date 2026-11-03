@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { parseSheets } from '../src/data.js'
 import { buildIndex, createDict } from '../src/dict.js'
+import { derivedEntries } from '../src/forms.js'
 
 export const FIXTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixture')
 
@@ -15,9 +16,10 @@ let dict
 
 export function fixtureDict() {
     if (!dict) {
-        const entries = parseSheets(readFixture('words.tsv'), readFixture('words_add_lang.tsv'))
+        const sheet = parseSheets(readFixture('words.tsv'), readFixture('words_add_lang.tsv'))
+        const entries = [...sheet, ...derivedEntries(sheet)]
 
-        dict = createDict(entries, buildIndex(entries), { entries: entries.length })
+        dict = createDict(entries, buildIndex(entries), { entries: sheet.length })
     }
 
     return dict
