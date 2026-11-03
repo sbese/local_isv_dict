@@ -300,3 +300,16 @@ test('derivedEntries: participles decline like adjectives, without comparison', 
     assert.deepEqual(Object.keys(pisuci), ['lemma', 'sg', 'pl'])
     assert.deepEqual(Object.keys(pisany), ['lemma', 'sg', 'pl', 'short'])
 })
+
+test('derivedEntries: a noun spelled like a participle does not stand in for it', () => {
+    const derived = derivedEntries([
+        { id: 1526, isv: 'učiti', pos: 'v.tr. ipf.', addition: '', removed: false, tr: {} },
+        { id: 13168, isv: 'učeny', pos: 'm.anim.', addition: '', tr: {} },
+    ])
+    const uceny = derived.find((entry) => entry.isv === 'učeny')
+
+    // the noun "učeny" (a scholar) has the masculine only; "učenų" is the participle's feminine
+    assert.equal(uceny.id, -4001526)
+    assert.equal(uceny.derived.kind, 'past passive participle')
+    assert.ok(searchableForms(paradigms(uceny).list).has('učenų'))
+})

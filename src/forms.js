@@ -387,19 +387,22 @@ export function paradigms(entry) {
 }
 
 // What is derived from a verb: the cell of its table that gives the lemma, the part of speech of
-// the new entry and the part of its id that keeps entries of different kinds apart.
+// the new entry (tag and parsed name) and the part of its id that keeps entries of different kinds
+// apart.
 const DERIVED_KINDS = [
-    { kind: 'verbal noun', slot: 'verbalNoun', pos: 'n.', idBase: 0 },
-    { kind: 'present active participle', slot: 'participle.presentActive.m', pos: 'adj.', idBase: 1e6 },
-    { kind: 'present passive participle', slot: 'participle.presentPassive.m', pos: 'adj.', idBase: 2e6 },
-    { kind: 'past active participle', slot: 'participle.pastActive.m', pos: 'adj.', idBase: 3e6 },
-    { kind: 'past passive participle', slot: 'participle.pastPassive.m', pos: 'adj.', idBase: 4e6 },
+    { kind: 'verbal noun', slot: 'verbalNoun', pos: 'n.', name: 'noun', idBase: 0 },
+    { kind: 'present active participle', slot: 'participle.presentActive.m', pos: 'adj.', name: 'adjective', idBase: 1e6 },
+    { kind: 'present passive participle', slot: 'participle.presentPassive.m', pos: 'adj.', name: 'adjective', idBase: 2e6 },
+    { kind: 'past active participle', slot: 'participle.pastActive.m', pos: 'adj.', name: 'adjective', idBase: 3e6 },
+    { kind: 'past passive participle', slot: 'participle.pastPassive.m', pos: 'adj.', name: 'adjective', idBase: 4e6 },
 ]
 
 /**
  * Entries the dictionary does not have but the declension library implies: the verbal noun and the
  * participles of every verb ("zakryti" → "zakryťje", "zakryty", "zakryvši"), unless the dictionary
- * already has that word as a noun or an adjective. Homonymous verbs and "učiti" / "učiti sę" share
+ * already has that word as the same part of speech. A noun does not stand for a participle: the
+ * noun "učeny" (a scholar) declines in the masculine only, the participle "učeny" in every gender.
+ * Homonymous verbs and "učiti" / "učiti sę" share
  * their derived words, so one entry may come from several verbs.
  *
  * A derived entry has a negative id (its first verb's id, plus a million times the place of its
@@ -409,12 +412,12 @@ const DERIVED_KINDS = [
  * @returns {import('./data.js').Entry[]}
  */
 export function derivedEntries(entries) {
-    const existing = new Set()
+    const existing = new Set() // part of speech + isvStd of every headword
 
     for (const entry of entries) {
-        if (['noun', 'adjective'].includes(safeParsePos(entry.pos)?.name)) {
-            lemmaVariants(entry.isv).forEach((variant) => existing.add(isvStd(variant)))
-        }
+        const name = safeParsePos(entry.pos)?.name
+
+        lemmaVariants(entry.isv).forEach((variant) => existing.add(`${name}:${isvStd(variant)}`))
     }
 
     // a group of verbs and the words of one kind derived from them; groups that share a word are
@@ -441,7 +444,7 @@ export function derivedEntries(entries) {
                     // a reflexive participle "učęći sę" declines without its "sę"
                     const lemma = toScript(form.replace(/ s[ęe]$/, ''), 'etymological')
 
-                    if (lemma && !lemma.includes(' ') && !existing.has(isvStd(lemma))) {
+                    if (lemma && !lemma.includes(' ') && !existing.has(`${derived.name}:${isvStd(lemma)}`)) {
                         variants.set(`${derived.kind}:${isvStd(lemma)}`, lemma)
                     }
                 }
