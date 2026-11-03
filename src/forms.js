@@ -376,6 +376,82 @@ export function paradigms(entry) {
 }
 
 /**
+ * Entries the dictionary does not have but the declension library implies: the verbal noun of
+ * every verb ("zakryti" → "zakryťje"), unless the dictionary already has that noun. Homonymous
+ * verbs and "učiti" / "učiti sę" share one verbal noun, so one entry may come from several verbs.
+ *
+ * A derived entry has a negative id (minus the id of its first verb), no translations of its own
+ * and `derived: {kind, from: [{id, isv}]}`; otherwise it is an ordinary entry.
+ * @param {import('./data.js').Entry[]} entries
+ * @returns {import('./data.js').Entry[]}
+ */
+export function derivedEntries(entries) {
+    const nouns = new Set()
+
+    for (const entry of entries) {
+        if (safeParsePos(entry.pos)?.name === 'noun') {
+            lemmaVariants(entry.isv).forEach((variant) => nouns.add(isvStd(variant)))
+        }
+    }
+
+    // a group of verbs and their verbal nouns; groups that share a noun are merged, so that
+    // "ogluhnuti, oglušeti" and "oglušiti" give one entry "ogluhnutje, oglušenje", not two
+    const groupOf = new Map() // isvStd of a noun → its group
+
+    for (const entry of entries) {
+        if (entry.removed || safeParsePos(entry.pos)?.name !== 'verb') {
+            continue
+        }
+
+        // "vladati, vlåděti" has two verbal nouns, written as headword variants the way the sheet does
+        const variants = new Map()
+
+        for (const paradigm of paradigms(entry).list) {
+            // "iměti pravdų": the library builds the verbal noun of "iměti" alone
+            const text = paradigm.searchable && paradigm.cells.find((cell) => cell.slot === 'verbalNoun')?.text
+            const lemma = text && toScript(text, 'etymological')
+
+            if (lemma && !nouns.has(isvStd(lemma))) {
+                variants.set(isvStd(lemma), lemma)
+            }
+        }
+
+        if (!variants.size) {
+            continue
+        }
+
+        const [group, ...others] = new Set([...variants.keys()].map((key) => groupOf.get(key)).filter(Boolean))
+        const target = group ?? { variants: new Map(), verbs: [] }
+
+        for (const other of others) {
+            other.variants.forEach((lemma, key) => target.variants.set(key, lemma))
+            target.verbs.push(...other.verbs)
+        }
+
+        variants.forEach((lemma, key) => target.variants.set(key, lemma))
+        target.verbs.push({ id: entry.id, isv: entry.isv })
+        target.variants.forEach((lemma, key) => groupOf.set(key, target))
+    }
+
+    return [...new Set(groupOf.values())].map(({ variants, verbs }) => {
+        const from = verbs.sort((a, b) => a.id - b.id)
+
+        return {
+            id: -from[0].id,
+            isv: [...variants.values()].join(', '),
+            removed: false,
+            addition: '',
+            pos: 'n.',
+            type: '',
+            frequency: null,
+            intelligibility: '',
+            tr: {},
+            derived: { kind: 'verbal noun', from },
+        }
+    }).sort((a, b) => b.id - a.id)
+}
+
+/**
  * The single forms written in a cell: "mene (mę)" → mene, mę; "(n)jego (go)" → jego, njego, go;
  * "slova / slovesa" → slova, slovesa.
  */

@@ -75,6 +75,8 @@ function indexColumns(header) {
  * @property {number|null} frequency
  * @property {string} intelligibility
  * @property {Record<string, string>} tr raw non-empty translation cells; a leading `!` = unverified
+ * @property {{kind: string, from: {id: number, isv: string}[]}} [derived] not in the sheet: made from
+ *     these entries (see `derivedEntries` in forms.js)
  */
 
 /**

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { expandForms, matchSlots, paradigms, renderParadigm, searchableForms } from '../src/forms.js'
+import { derivedEntries, expandForms, matchSlots, paradigms, renderParadigm, searchableForms } from '../src/forms.js'
 
 const entry = (isv, pos, addition = '') => ({ isv, pos, addition })
 // expected values below are the declension library's own test snapshots, hence etymological script
@@ -232,4 +232,39 @@ test('matchSlots: a form typed exactly does not drag in its look-alikes', () => 
 
     assert.deepEqual(matchSlots(prati, 'pere'), { slots: ['present.3sg'], exact: true })
     assert.deepEqual(matchSlots(prati, 'père'), { slots: ['present.3sg'], exact: false })
+})
+
+test('derivedEntries: the verbal noun of every verb the dictionary has no noun for', () => {
+    const verb = (id, isv, pos = 'v.tr. ipf.', more = {}) => ({ id, isv, pos, addition: '', removed: false, tr: {}, ...more })
+    const derived = derivedEntries([
+        verb(1, 'pisati'),
+        verb(2, 'učiti'),
+        verb(3, 'učiti sę', 'v.refl. ipf.'),
+        verb(4, 'vladati, vlåděti'),
+        verb(5, 'iměti pravdų', 'v.ipf.'),
+        verb(6, 'biti', 'v.tr. ipf.', { removed: true }),
+        verb(7, 'kovati'),
+        { id: 8, isv: 'kovańje', pos: 'n.', addition: '', tr: {} },
+        // shares "oglušeńje" with the verb before it, and the nouns of both join one entry
+        verb(9, 'ogluhnųti, oglušeti', 'v.intr. pf.'),
+        verb(10, 'oglušiti', 'v.tr. pf.'),
+    ])
+    const summary = derived.map((entry) => [entry.id, entry.isv, entry.pos, entry.derived.from.map((source) => source.id)])
+
+    // učiti and učiti sę share one noun; a phrase, a removed verb and a verb whose noun exists give none
+    assert.deepEqual(summary, [
+        [-1, 'pisańje', 'n.', [1]],
+        [-2, 'učeńje', 'n.', [2, 3]],
+        [-4, 'vladańje, vlåděńje', 'n.', [4]],
+        [-9, 'ogluhnųťje, oglušeńje', 'n.', [9, 10]],
+    ])
+    assert.deepEqual(derived[0].tr, {})
+    assert.equal(derived[0].derived.kind, 'verbal noun')
+
+    // in the library's own spelling, so that it declines right: genitive plural "pisanij"
+    const [pisanje] = paradigms(derived[0]).list.map((paradigm) => renderParadigm(paradigm, 'etymological'))
+
+    assert.equal(pisanje.sg.ins, 'pisańjem')
+    assert.equal(pisanje.pl.gen, 'pisanij')
+    assert.equal(paradigms(derived[2]).list.length, 2)
 })
