@@ -20,6 +20,7 @@ Also writes what the rules could not resolve, for the model to fill:
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
 from collections import defaultdict
@@ -28,7 +29,7 @@ from pathlib import Path
 import pymorphy3
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / 'data'
+DATA = Path(os.environ.get('ISV_DICT_DATA_DIR') or ROOT / 'data').resolve()  # as in src/data.js
 SUPPLEMENT = ROOT / 'supplement' / 'ru_generated.tsv'
 
 ACCENTS = str.maketrans('', '', chr(0x301) + chr(0x300))
@@ -118,6 +119,28 @@ def export_entries():
     return [json.loads(line) for line in result.stdout.splitlines() if line]
 
 
+def headword_variants(isv):
+    """"umŕeńje, umrěńje" → {"umŕeńje", "umrěńje"}: a derived entry may gain or lose variants after an update."""
+    return {variant.strip() for variant in isv.split(',') if variant.strip()}
+
+
+def supplement_targets(entries):
+    """The ids a `target` of the supplement stands for: a derived verbal noun is matched by any of its
+    headword variants, an entry of the sheet by its id. Empty when it matches nothing."""
+    noun_by_variant = {variant: entry['id'] for entry in entries
+                       if entry['derived'] and entry['derived']['kind'] == 'verbal noun'
+                       for variant in headword_variants(entry['isv'])}
+    ids = {entry['id'] for entry in entries}
+
+    def target_ids(target):
+        kind, _, key = target.partition(':')
+        if kind == 'derived':
+            return {noun_by_variant[variant] for variant in headword_variants(key) if variant in noun_by_variant}
+        return {int(key)} & ids if kind == 'id' and key.lstrip('-').isdigit() else set()
+
+    return target_ids
+
+
 def read_supplement():
     """`target` (id:N or derived:<isv>), `ru` (comma-separated; empty = no Russian word), `note`."""
     if not SUPPLEMENT.exists():
@@ -154,7 +177,8 @@ def main():
                                 'ru': variant, 'all_ru': entry['ru']})
 
     supplement = read_supplement()
-    supplied = {row['target'] for row in supplement}
+    target_ids = supplement_targets(entries)
+    supplied = {entry_id for row in supplement for entry_id in target_ids(row['target'])}
 
     todo_nouns = []
     for entry in entries:
@@ -166,21 +190,19 @@ def main():
         nouns = {candidate for word in infinitives for candidate in verbal_noun_candidates(word) if known_noun(candidate)}
         for noun in nouns:
             add(noun, entry['id'], 'verbal-noun')
-        if not nouns and f"derived:{entry['isv']}" not in supplied:
+        if not nouns and entry['id'] not in supplied:
             todo_nouns.append({'target': f"derived:{entry['isv']}", 'isv': entry['isv'],
                                'verbs': [{'id': verb['id'], 'isv': verb['isv'], 'pos': verb['pos'],
                                           'ru': verb['ru'], 'en': verb['en']} for verb in verbs]})
 
-    derived_by_isv = {entry['isv']: entry['id'] for entry in entries if entry['derived']}
     stale = []
     doubtful = []  # generated words pymorphy does not know
     for row in supplement:
-        kind, _, key = row['target'].partition(':')
-        entry_id = derived_by_isv.get(key) if kind == 'derived' else int(key) if key.lstrip('-').isdigit() else None
-        if entry_id is None or entry_id not in by_id:
+        ids = target_ids(row['target'])
+        if not ids:
             stale.append(row['target'])
-            continue
-        for variant in filter(None, (piece.strip() for piece in row['ru'].split(','))):
+        for entry_id, variant in ((entry_id, variant) for entry_id in ids
+                                  for variant in filter(None, (piece.strip() for piece in row['ru'].split(',')))):
             word = norm(variant)
             if not is_word(word):
                 continue  # a phrase, see the README
@@ -189,8 +211,7 @@ def main():
             for lemma in dict_lemmas(word):
                 add(lemma, entry_id, 'generated')
 
-    supplied_ids = {row['target'] for row in supplement}
-    unknown = [item for item in unknown if f"id:{item['id']}" not in supplied_ids]
+    unknown = [item for item in unknown if item['id'] not in supplied]
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -216,6 +237,8 @@ def main():
         print(f'  generated words pymorphy does not know: {len(doubtful)}: {", ".join(doubtful[:10])}', file=sys.stderr)
     if stale:
         print(f'  supplement lines matching no entry: {len(stale)}: {", ".join(stale[:10])}', file=sys.stderr)
+        print('  their words are not in the list; fix their `target` (see the README)', file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == '__main__':

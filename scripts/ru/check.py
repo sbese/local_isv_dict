@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Checks a Russian text against data/ru_lemmas.tsv: prints the words whose lemma the dictionary
 has no entry for. A word counts as found when any of its pymorphy parses gives a known lemma, so
-"сделанный" is found through "сделать" and "стали" through "стать" or "сталь".
+"сделанный" is found through "сделать" and "стали" through "стать" or "сталь". A missing word is not
+reported when pymorphy takes it for a name or a place (only if written with a capital letter) or, by
+its most likely parse, for an abbreviation; the grammemes are set by --skip.
 
 Reads the text from the given files or from stdin. Exits with 1 when some words are missing.
 
@@ -11,6 +13,7 @@ Reads the text from the given files or from stdin. Exits with 1 when some words 
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter, defaultdict
@@ -22,8 +25,14 @@ ROOT = Path(__file__).resolve().parents[2]
 ACCENTS = str.maketrans('', '', chr(0x301) + chr(0x300))
 WORD = re.compile(r'[а-яё]+(?:-[а-яё]+)*', re.IGNORECASE)
 
-# pymorphy grammemes of words that are not looked up: names, places, abbreviations
+DATA = Path(os.environ.get('ISV_DICT_DATA_DIR') or ROOT / 'data').resolve()  # as in src/data.js
+
+# pymorphy grammemes of words not reported as missing: names, places, abbreviations
 DEFAULT_SKIP = 'Name,Surn,Patr,Geox,Orgn,Trad,Abbr,Init'
+# pymorphy also reads many common nouns as names ("роза", "лев", "орёл"), so a word counts as a name
+# or a place only when written with a capital letter; any other grammeme (an abbreviation: "млн", but
+# also "и", "в") only when its most likely parse has it
+PROPER = {'Name', 'Surn', 'Patr', 'Geox', 'Orgn', 'Trad'}
 
 
 def norm(text):
@@ -39,7 +48,7 @@ def load_lemmas(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('files', nargs='*')
-    parser.add_argument('--lemmas', default=str(ROOT / 'data' / 'ru_lemmas.tsv'))
+    parser.add_argument('--lemmas', default=str(DATA / 'ru_lemmas.tsv'))
     parser.add_argument('--skip', default=DEFAULT_SKIP,
                         help=f'comma-separated pymorphy grammemes or parts of speech not to check (default: {DEFAULT_SKIP})')
     parser.add_argument('--json', action='store_true', help='print the result as JSON')
@@ -56,11 +65,14 @@ def main():
     for match in WORD.finditer(text):
         word = norm(match.group())
         parses = morph.parse(word)
-        if any(skip & set(parse.tag.grammemes) for parse in parses[:1]):
+        if word in lemmas or any(norm(parse.normal_form) in lemmas for parse in parses):
+            total += 1
+            continue
+        capitalized = match.group()[0].isupper()
+        if any(tag in parse.tag.grammemes and (capitalized if tag in PROPER else parse is parses[0])
+               for parse in parses for tag in skip):
             continue
         total += 1
-        if word in lemmas or any(norm(parse.normal_form) in lemmas for parse in parses):
-            continue
         missing[norm(parses[0].normal_form)][match.group()] += 1
 
     ordered = sorted(missing.items(), key=lambda item: (-sum(item[1].values()), item[0]))
