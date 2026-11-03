@@ -103,14 +103,14 @@ Pass dictionary forms (lemmas): nominative singular for nouns and adjectives, th
 Reading the result:
 - queries[].matches — all entries found for that word, best first. "via" tells how each one matched: a language code ("ru"); "!" after the code = found through an unverified machine translation; "~" = matched only when diacritics are ignored; "isv" = the Interslavic headword itself; "isv form: sg.gen" = an inflected Interslavic form; "ru phrase" = the word only occurs inside a longer expression in that language.
 - entries — the full entries, each listed once: up to "limit" per word, and only for the best kind of match that word has. Every other match is listed with its part of speech and English meaning and can be fetched by passing "id:<number>" as a word.
-- An entry with a negative id and a "derived" field is not in the dictionary: it is a word built from another entry (the verbal noun of a verb) so that its forms can be found. It has no translations; its meaning follows from the entry it was built from.
+- An entry with a negative id and a "derived" field is not in the dictionary: it is a word built from another entry (the verbal noun or a participle of a verb) so that its forms can be found. It has no translations; its meaning follows from the entry it was built from.
 - In "translations" a leading "!" marks an unverified machine translation. "level" is how widely the word is understood, "intelligibility" lists languages (+ understood, ~ partly, - not), "governs" is the case the word requires.
 
 To keep the answer small use "langs" (for example "min"), and leave "forms" off: get the forms afterwards, only for the entries you chose.`
 
 export const FORMS_DESCRIPTION = `Return all inflected forms of Interslavic (Medžuslovjansky) words: declension of nouns, adjectives, pronouns and numerals in every case, singular and plural; conjugation of verbs — present, imperfect, future, perfect, pluperfect, conditional, imperative, participles and the verbal noun.
 
-Pass Interslavic words in Latin or Cyrillic — the dictionary form or any inflected form — or "id:<number>" taken from a lookup result (the most precise way). When several dictionary entries are spelled the same, all of them are returned with their part of speech and English meaning. Verbal nouns the dictionary has no entry for ("zakrytje" from "zakryti") come as entries with a negative id and a "derived" field naming the verb, and decline like any other noun.
+Pass Interslavic words in Latin or Cyrillic — the dictionary form or any inflected form — or "id:<number>" taken from a lookup result (the most precise way). When several dictionary entries are spelled the same, all of them are returned with their part of speech and English meaning. Verbal nouns and participles the dictionary has no entry for ("zakrytje", "zakryty" from "zakryti") come as entries with a negative id and a "derived" field naming the verb; they decline like any other noun or adjective.
 
 Reading the forms: the keys describe themselves — "sg.gen" is genitive singular, "present.1sg" first person singular, "pl.nom.m.anim" nominative plural masculine animate, "m/n" a form shared by masculine and neuter. " / " separates alternative forms; "(x)" after a pronoun form is its short form; a leading "(n)" is added after prepositions; "pisal(a)" means the feminine adds -a; an auxiliary in brackets, "(je)", may be left out.`
 
@@ -435,7 +435,12 @@ function pickTranslations(entry, langs, matchedLangs) {
 function renderDerived(entry, script) {
     const sources = entry.derived.from.map((source) => `${toScript(source.isv, script)} (id ${source.id})`)
 
-    return `${entry.derived.kind} of ${sources.join(', ')}; not a dictionary entry, built from the verb`
+    // "pišųći", "pisavši" also serve as the adverbial participle, which does not decline
+    const adverbial = /active participle/.test(entry.derived.kind)
+        ? '; its nominative is also the indeclinable adverbial participle'
+        : ''
+
+    return `${entry.derived.kind} of ${sources.join(', ')}${adverbial}; not a dictionary entry, built from the verb`
 }
 
 function renderEntry(entry, options, handler, matchedLangs) {

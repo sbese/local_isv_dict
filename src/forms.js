@@ -245,7 +245,9 @@ function nounParadigms(tag, pos, lemma, hint) {
     return list
 }
 
-function adjectiveParadigms(tag, lemma) {
+// `derivedKind` of a participle: it has no comparison and no adverb, and an active one no short
+// form either ("pisan" is a word, "pišųć" is not)
+function adjectiveParadigms(tag, lemma, derivedKind = '') {
     const table = attempt(() => declensionAdjective(lemma, '', tag))
 
     if (!table) {
@@ -256,6 +258,15 @@ function adjectiveParadigms(tag, lemma) {
     const { positive = [], comparative = [], superlative = [] } = table.comparison ?? {}
 
     adjectiveCells(push, table.singular, table.plural)
+
+    if (derivedKind.endsWith('participle')) {
+        if (derivedKind.includes('passive')) {
+            push('short', table.short)
+        }
+
+        return [{ lemma, kind: 'adjective', searchable: true, cells }]
+    }
+
     push('short', table.short)
     push('adverb', positive[1], { alternatives: true })
     push('comparative.adj', comparative[0], { alternatives: true })
@@ -346,7 +357,7 @@ export function paradigms(entry) {
                 built = nounParadigms(entry.pos, pos, lemma, hints[i])
                 break
             case 'adjective':
-                built = adjectiveParadigms(entry.pos, lemma)
+                built = adjectiveParadigms(entry.pos, lemma, entry.derived?.kind)
                 break
             case 'verb':
                 built = verbParadigms(entry.pos, lemma, hints[i])
@@ -375,78 +386,106 @@ export function paradigms(entry) {
     return { list }
 }
 
+// What is derived from a verb: the cell of its table that gives the lemma, the part of speech of
+// the new entry (tag and parsed name) and the part of its id that keeps entries of different kinds
+// apart.
+const DERIVED_KINDS = [
+    { kind: 'verbal noun', slot: 'verbalNoun', pos: 'n.', name: 'noun', idBase: 0 },
+    { kind: 'present active participle', slot: 'participle.presentActive.m', pos: 'adj.', name: 'adjective', idBase: 1e6 },
+    { kind: 'present passive participle', slot: 'participle.presentPassive.m', pos: 'adj.', name: 'adjective', idBase: 2e6 },
+    { kind: 'past active participle', slot: 'participle.pastActive.m', pos: 'adj.', name: 'adjective', idBase: 3e6 },
+    { kind: 'past passive participle', slot: 'participle.pastPassive.m', pos: 'adj.', name: 'adjective', idBase: 4e6 },
+]
+
 /**
- * Entries the dictionary does not have but the declension library implies: the verbal noun of
- * every verb ("zakryti" → "zakryťje"), unless the dictionary already has that noun. Homonymous
- * verbs and "učiti" / "učiti sę" share one verbal noun, so one entry may come from several verbs.
+ * Entries the dictionary does not have but the declension library implies: the verbal noun and the
+ * participles of every verb ("zakryti" → "zakryťje", "zakryty", "zakryvši"), unless the dictionary
+ * already has that word as the same part of speech. A noun does not stand for a participle: the
+ * noun "učeny" (a scholar) declines in the masculine only, the participle "učeny" in every gender.
+ * Homonymous verbs and "učiti" / "učiti sę" share
+ * their derived words, so one entry may come from several verbs.
  *
- * A derived entry has a negative id (minus the id of its first verb), no translations of its own
- * and `derived: {kind, from: [{id, isv}]}`; otherwise it is an ordinary entry.
+ * A derived entry has a negative id (its first verb's id, plus a million times the place of its
+ * kind in DERIVED_KINDS), no translations of its own and `derived: {kind, from: [{id, isv}]}`;
+ * otherwise it is an ordinary entry.
  * @param {import('./data.js').Entry[]} entries
  * @returns {import('./data.js').Entry[]}
  */
 export function derivedEntries(entries) {
-    const nouns = new Set()
+    const existing = new Set() // part of speech + isvStd of every headword
 
     for (const entry of entries) {
-        if (safeParsePos(entry.pos)?.name === 'noun') {
-            lemmaVariants(entry.isv).forEach((variant) => nouns.add(isvStd(variant)))
-        }
+        const name = safeParsePos(entry.pos)?.name
+
+        lemmaVariants(entry.isv).forEach((variant) => existing.add(`${name}:${isvStd(variant)}`))
     }
 
-    // a group of verbs and their verbal nouns; groups that share a noun are merged, so that
-    // "ogluhnuti, oglušeti" and "oglušiti" give one entry "ogluhnutje, oglušenje", not two
-    const groupOf = new Map() // isvStd of a noun → its group
+    // a group of verbs and the words of one kind derived from them; groups that share a word are
+    // merged, so that "ogluhnuti, oglušeti" and "oglušiti" give one entry "ogluhnutje, oglušenje"
+    const groupOf = new Map() // kind + isvStd of a word → its group
 
     for (const entry of entries) {
         if (entry.removed || safeParsePos(entry.pos)?.name !== 'verb') {
             continue
         }
 
-        // "vladati, vlåděti" has two verbal nouns, written as headword variants the way the sheet does
-        const variants = new Map()
+        // "iměti pravdų": the library builds the forms of "iměti" alone
+        const tables = paradigms(entry).list.filter((paradigm) => paradigm.searchable)
 
-        for (const paradigm of paradigms(entry).list) {
-            // "iměti pravdų": the library builds the verbal noun of "iměti" alone
-            const text = paradigm.searchable && paradigm.cells.find((cell) => cell.slot === 'verbalNoun')?.text
-            const lemma = text && toScript(text, 'etymological')
+        for (const derived of DERIVED_KINDS) {
+            // "vladati, vlåděti" has two verbal nouns, written as headword variants the way the sheet
+            // does; "dělajemy / dělamy" are two participles of one verb
+            const variants = new Map()
 
-            if (lemma && !nouns.has(isvStd(lemma))) {
-                variants.set(isvStd(lemma), lemma)
+            for (const paradigm of tables) {
+                const text = paradigm.cells.find((cell) => cell.slot === derived.slot)?.text ?? ''
+
+                for (const form of text.split(' / ')) {
+                    // a reflexive participle "učęći sę" declines without its "sę"
+                    const lemma = toScript(form.replace(/ s[ęe]$/, ''), 'etymological')
+
+                    if (lemma && !lemma.includes(' ') && !existing.has(`${derived.name}:${isvStd(lemma)}`)) {
+                        variants.set(`${derived.kind}:${isvStd(lemma)}`, lemma)
+                    }
+                }
             }
+
+            if (!variants.size) {
+                continue
+            }
+
+            const [group, ...others] = new Set([...variants.keys()].map((key) => groupOf.get(key)).filter(Boolean))
+            const target = group ?? { derived, variants: new Map(), verbs: [] }
+
+            for (const other of others) {
+                other.variants.forEach((lemma, key) => target.variants.set(key, lemma))
+                target.verbs.push(...other.verbs)
+            }
+
+            variants.forEach((lemma, key) => target.variants.set(key, lemma))
+
+            if (!target.verbs.some((verb) => verb.id === entry.id)) {
+                target.verbs.push({ id: entry.id, isv: entry.isv })
+            }
+
+            target.variants.forEach((lemma, key) => groupOf.set(key, target))
         }
-
-        if (!variants.size) {
-            continue
-        }
-
-        const [group, ...others] = new Set([...variants.keys()].map((key) => groupOf.get(key)).filter(Boolean))
-        const target = group ?? { variants: new Map(), verbs: [] }
-
-        for (const other of others) {
-            other.variants.forEach((lemma, key) => target.variants.set(key, lemma))
-            target.verbs.push(...other.verbs)
-        }
-
-        variants.forEach((lemma, key) => target.variants.set(key, lemma))
-        target.verbs.push({ id: entry.id, isv: entry.isv })
-        target.variants.forEach((lemma, key) => groupOf.set(key, target))
     }
 
-    return [...new Set(groupOf.values())].map(({ variants, verbs }) => {
+    return [...new Set(groupOf.values())].map(({ derived, variants, verbs }) => {
         const from = verbs.sort((a, b) => a.id - b.id)
 
         return {
-            id: -from[0].id,
+            id: -(derived.idBase + from[0].id),
             isv: [...variants.values()].join(', '),
             removed: false,
             addition: '',
-            pos: 'n.',
+            pos: derived.pos,
             type: '',
             frequency: null,
             intelligibility: '',
             tr: {},
-            derived: { kind: 'verbal noun', from },
+            derived: { kind: derived.kind, from },
         }
     }).sort((a, b) => b.id - a.id)
 }

@@ -118,7 +118,7 @@ test('matches that differ only in diacritics are marked with ~ and merely listed
 test('y and i are different letters when typed exactly', () => {
     const byti = lookup(dict, 'byti', { from: 'isv' })
 
-    assert.deepEqual(byti.queries[0].matches.map((match) => `${match.id} ${match.via}`), ['593 isv', '24896 isv', '4049 isv~'])
+    assert.deepEqual(byti.queries[0].matches.map((match) => `${match.id} ${match.via}`), ['593 isv', '24896 isv', '4049 isv~', '-4004049 isv~'])
     assert.deepEqual(ids(byti.entries), [593, 24896])
     assert.deepEqual(ids(lookup(dict, 'biti', { from: 'isv' }).entries), [4049])
 })
