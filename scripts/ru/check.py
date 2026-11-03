@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """Checks a Russian text against data/ru_lemmas.tsv: prints the words whose lemma the dictionary
 has no entry for. A word counts as found when any of its pymorphy parses gives a known lemma, so
-"сделанный" is found through "сделать" and "стали" through "стать" or "сталь". A missing word is not
-reported when pymorphy takes it for a name or a place (only if written with a capital letter) or, by
-its most likely parse, for an abbreviation; the grammemes are set by --skip.
+"сделанный" is found through "сделать" and "стали" through "стать" or "сталь"; a hyphenated word
+is found when all its parts are ("интернет-магазин").
 
-Reads the text from the given files or from stdin. Exits with 1 when some words are missing.
+Not every word that is not found is reported as missing:
+- words pymorphy does not know (names, typos, rare words, foreign words) are listed apart, as
+  written, since the lemma pymorphy would guess for them is unreliable ("мбитый" for "Мбит");
+- skipped altogether, and listed only with --json: a capitalized word inside a sentence (a name,
+  a brand), a word in capitals (an abbreviation), a word pymorphy reads as a name or a place when
+  capitalized or as an abbreviation by its most likely parse (--skip sets those grammemes), a short
+  indeclinable noun ("мм", "га"), the tail of "6-го", and single letters.
+
+Reads the text from the given files or from stdin. Exits with 1 when some words are missing or
+unknown.
 
   python scripts/ru/check.py text.txt
   echo "Мы читали книгу" | python scripts/ru/check.py --json
@@ -27,6 +35,11 @@ ACCENTS = str.maketrans('', '', chr(0x301) + chr(0x300))
 # hyphen, non-breaking hyphen, minus → "-", as in src/text.js; dashes are left alone: they separate words
 HYPHENS = str.maketrans({chr(0x2010): '-', chr(0x2011): '-', chr(0x2212): '-'})
 WORD = re.compile(r'[а-яё]+(?:-[а-яё]+)*', re.IGNORECASE)
+# "6-го", "2-х", "4ре": the letters after a number are not a word
+AFTER_NUMBER = re.compile(r'\d-?$')
+# a sentence starts after its end, at the start of a line, or at the start of the text, with any
+# opening quotes, brackets and dashes in between
+SENTENCE_START = re.compile(r'(?:^|[\n.!?…:;])[\s«"„“\'(\[—–-]*$')
 
 DATA = Path(os.environ.get('ISV_DICT_DATA_DIR') or ROOT / 'data').resolve()  # as in src/data.js
 
@@ -56,6 +69,77 @@ def load_lemmas(path):
         return {line.split('\t', 1)[0] for line in file}
 
 
+class Checker:
+    def __init__(self, lemmas, skip=DEFAULT_SKIP):
+        self.lemmas = lemmas
+        self.skip = {tag for tag in skip.split(',') if tag}
+        self.morph = pymorphy3.MorphAnalyzer()
+
+    def found(self, word):
+        return word in self.lemmas or any(norm(parse.normal_form) in self.lemmas for parse in self.morph.parse(word))
+
+    def classify(self, text):
+        """Yields (word as written, outcome, key) for every word of the text: the outcome is
+        "found", "missing" (key: the lemma), "unknown" (key: the word) or "skipped" (key: why)."""
+        text = prepare(text)
+        for match in WORD.finditer(text):
+            raw = match.group()
+            word = norm(raw)
+            if self.found(word) or ('-' in word and all(self.found(part) for part in word.split('-'))):
+                yield raw, 'found', word
+                continue
+            before = text[:match.start()]
+            if AFTER_NUMBER.search(before):
+                yield raw, 'skipped', 'after a number'
+                continue
+            if len(raw) > 1 and raw.isupper():
+                yield raw, 'skipped', 'in capitals'
+                continue
+            capitalized = raw[0].isupper()
+            if capitalized and not SENTENCE_START.search(before):
+                yield raw, 'skipped', 'capitalized inside a sentence'
+                continue
+            # the one-letter words ("а", "и", "в", "я") are all in the dictionary; what is left is a
+            # fragment ("й", "х") or a particle pymorphy does not normalize ("б", "ж")
+            if len(word) == 1:
+                yield raw, 'skipped', 'a single letter'
+                continue
+            # the grammemes pymorphy guesses for a word it does not know are not to be trusted
+            # ("интернет-банк" is an abbreviation to it), so such a word is listed as it is
+            if not self.morph.word_is_known(word):
+                yield raw, 'unknown', word
+                continue
+            parses = self.morph.parse(word)
+            if any(tag in parse.tag.grammemes and (capitalized if tag in PROPER else parse is parses[0])
+                   for parse in parses for tag in self.skip):
+                yield raw, 'skipped', 'a name or an abbreviation to pymorphy'
+                continue
+            # "мм", "га", "кг": a two-letter indeclinable noun is a unit ("руб", "тыс" are
+            # abbreviations to pymorphy already)
+            if len(word) == 2 and any('Fixd' in parse.tag for parse in parses):
+                yield raw, 'skipped', 'a unit'
+                continue
+            yield raw, 'missing', norm(parses[0].normal_form)
+
+    def check(self, text):
+        """Counts of the text's words: `found`, `missing` and `unknown` (key → forms as written →
+        count) and `skipped` (word as written → count)."""
+        report = {'found': 0, 'missing': defaultdict(Counter), 'unknown': defaultdict(Counter), 'skipped': Counter()}
+        for raw, outcome, key in self.classify(text):
+            if outcome == 'found':
+                report['found'] += 1
+            elif outcome == 'skipped':
+                report['skipped'][raw] += 1
+            else:
+                report[outcome][key][raw] += 1
+        return report
+
+
+def ordered(counted):
+    """Lemmas or words by their count, the most frequent first."""
+    return sorted(counted.items(), key=lambda item: (-sum(item[1].values()), item[0]))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('files', nargs='*')
@@ -65,37 +149,26 @@ def main():
     parser.add_argument('--json', action='store_true', help='print the result as JSON')
     args = parser.parse_args()
 
-    lemmas = load_lemmas(args.lemmas)
-    skip = {tag for tag in args.skip.split(',') if tag}
-    morph = pymorphy3.MorphAnalyzer()
+    checker = Checker(load_lemmas(args.lemmas), args.skip)
     text = '\n'.join(Path(name).read_text(encoding='utf-8') for name in args.files) if args.files else sys.stdin.read()
-    text = prepare(text)
+    report = checker.check(text)
+    missing, unknown = ordered(report['missing']), ordered(report['unknown'])
+    total = report['found'] + sum(sum(forms.values()) for forms in [*report['missing'].values(), *report['unknown'].values()])
 
-    missing = defaultdict(Counter)  # most likely lemma → the words of the text it stands for
-    total = 0
-    for match in WORD.finditer(text):
-        word = norm(match.group())
-        parses = morph.parse(word)
-        if word in lemmas or any(norm(parse.normal_form) in lemmas for parse in parses):
-            total += 1
-            continue
-        capitalized = match.group()[0].isupper()
-        if any(tag in parse.tag.grammemes and (capitalized if tag in PROPER else parse is parses[0])
-               for parse in parses for tag in skip):
-            continue
-        total += 1
-        missing[norm(parses[0].normal_form)][match.group()] += 1
-
-    ordered = sorted(missing.items(), key=lambda item: (-sum(item[1].values()), item[0]))
     if args.json:
-        json.dump({'words': total, 'missing': [{'lemma': lemma, 'count': sum(words.values()), 'forms': sorted(words)}
-                                               for lemma, words in ordered]}, sys.stdout, ensure_ascii=False, indent=1)
+        as_list = lambda items, name: [{name: key, 'count': sum(forms.values()), 'forms': sorted(forms)} for key, forms in items]
+        json.dump({'words': total, 'missing': as_list(missing, 'lemma'), 'unknown': as_list(unknown, 'word'),
+                   'skipped': sorted(report['skipped'])}, sys.stdout, ensure_ascii=False, indent=1)
         print()
     else:
-        for lemma, words in ordered:
-            print(f"{lemma}\t{sum(words.values())}\t{', '.join(sorted(words))}")
-        print(f'{len(missing)} lemmas missing of {total} words checked', file=sys.stderr)
-    sys.exit(1 if missing else 0)
+        for lemma, forms in missing:
+            print(f"{lemma}\t{sum(forms.values())}\t{', '.join(sorted(forms))}")
+        if unknown:
+            print('\nunknown to pymorphy (names, typos, rare words), as written:')
+            for word, forms in unknown:
+                print(f"{word}\t{sum(forms.values())}\t{', '.join(sorted(forms))}")
+        print(f'{len(missing)} lemmas missing and {len(unknown)} words unknown of {total} words checked', file=sys.stderr)
+    sys.exit(1 if missing or unknown else 0)
 
 
 if __name__ == '__main__':
