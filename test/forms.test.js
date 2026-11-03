@@ -249,7 +249,9 @@ test('derivedEntries: the verbal noun of every verb the dictionary has no noun f
         verb(9, 'ogluhnųti, oglušeti', 'v.intr. pf.'),
         verb(10, 'oglušiti', 'v.tr. pf.'),
     ])
-    const summary = derived.map((entry) => [entry.id, entry.isv, entry.pos, entry.derived.from.map((source) => source.id)])
+    const summary = derived
+        .filter((entry) => entry.derived.kind === 'verbal noun')
+        .map((entry) => [entry.id, entry.isv, entry.pos, entry.derived.from.map((source) => source.id)])
 
     // učiti and učiti sę share one noun; a phrase, a removed verb and a verb whose noun exists give none
     assert.deepEqual(summary, [
@@ -267,4 +269,34 @@ test('derivedEntries: the verbal noun of every verb the dictionary has no noun f
     assert.equal(pisanje.sg.ins, 'pisańjem')
     assert.equal(pisanje.pl.gen, 'pisanij')
     assert.equal(paradigms(derived[2]).list.length, 2)
+})
+
+test('derivedEntries: participles decline like adjectives, without comparison', () => {
+    const derived = derivedEntries([
+        { id: 141, isv: 'pisati', pos: 'v.tr. ipf.', addition: '(piše)', removed: false, tr: {} },
+        { id: 1531, isv: 'učiti sę', pos: 'v.refl. ipf.', addition: '', removed: false, tr: {} },
+        { id: 7, isv: 'pisavši', pos: 'adj.', addition: '', tr: {} },
+    ])
+    const participles = derived.filter((entry) => entry.pos === 'adj.')
+
+    // "pisavši" is in the dictionary already; a reflexive verb has active participles only, without "sę"
+    assert.deepEqual(participles.map((entry) => [entry.id, entry.isv, entry.derived.kind]), [
+        [-1000141, 'pišųći', 'present active participle'],
+        [-1001531, 'učęći', 'present active participle'],
+        [-2000141, 'pišemy', 'present passive participle'],
+        [-3001531, 'učivši', 'past active participle'],
+        [-4000141, 'pisany', 'past passive participle'],
+    ].sort((a, b) => b[0] - a[0]))
+
+    const table = (id) => renderParadigm(paradigms(participles.find((entry) => entry.id === id)).list[0], 'etymological')
+    const pisany = table(-4000141)
+    const pisuci = table(-1000141)
+
+    assert.equal(pisany.sg.gen['m/n'], 'pisanogo')
+    assert.equal(pisany.short, 'pisan')
+    assert.equal(pisuci.sg.gen['m/n'], 'pišųćego')
+    assert.equal(pisuci.pl.ins, 'pišųćimi')
+    // an active participle has no short form, no participle has an adverb or comparison
+    assert.deepEqual(Object.keys(pisuci), ['lemma', 'sg', 'pl'])
+    assert.deepEqual(Object.keys(pisany), ['lemma', 'sg', 'pl', 'short'])
 })
