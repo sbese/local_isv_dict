@@ -48,7 +48,8 @@ def main():
     lemmas = load_lemmas(args.lemmas)
     skip = {tag for tag in args.skip.split(',') if tag}
     morph = pymorphy3.MorphAnalyzer()
-    text = ''.join(Path(name).read_text(encoding='utf-8') for name in args.files) if args.files else sys.stdin.read()
+    text = '\n'.join(Path(name).read_text(encoding='utf-8') for name in args.files) if args.files else sys.stdin.read()
+    text = text.translate(ACCENTS)  # before splitting into words: "мо́ре" is one word
 
     missing = defaultdict(Counter)  # most likely lemma → the words of the text it stands for
     total = 0
