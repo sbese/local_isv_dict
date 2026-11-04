@@ -35,11 +35,12 @@ ACCENTS = str.maketrans('', '', chr(0x301) + chr(0x300))
 # hyphen, non-breaking hyphen, minus → "-", as in src/text.js; dashes are left alone: they separate words
 HYPHENS = str.maketrans({chr(0x2010): '-', chr(0x2011): '-', chr(0x2212): '-'})
 WORD = re.compile(r'[а-яё]+(?:-[а-яё]+)*', re.IGNORECASE)
-# "6-го", "2-х", "4ре": the letters after a number are not a word
-AFTER_NUMBER = re.compile(r'\d-?$')
-# a sentence starts after its end, at the start of a line, or at the start of the text, with any
-# opening quotes, brackets and dashes in between
-SENTENCE_START = re.compile(r'(?:^|[\n.!?…:;])[\s«"„“\'(\[—–-]*$')
+# "6-го", "2-х", "4ре": a few letters after a number are an ending, not a word ("3-комнатная" is)
+NUMBER_TAIL = 3
+# a sentence ends with one of these, or at the end of a line…
+SENTENCE_END = set('.!?…:;\n')
+# …possibly followed by quotes, brackets, dashes and spaces before the next one starts
+BETWEEN_SENTENCES = set(' \t\u00a0«»"„“”\'()[]—–-')
 
 DATA = Path(os.environ.get('ISV_DICT_DATA_DIR') or ROOT / 'data').resolve()  # as in src/data.js
 
@@ -61,6 +62,20 @@ def prepare(text):
     "е" + a grave into "ѐ"."""
     text = unicodedata.normalize('NFC', text.translate(ACCENTS)).translate(HYPHENS)
     return ''.join(char for char in text if unicodedata.category(char) not in ('Cf', 'Co'))
+
+
+def after_number(text, position):
+    """Whether the word at `position` follows a number: "6-го", "4ре"."""
+    before = text[max(0, position - 2):position]
+    return before.rstrip('-')[-1:].isdigit()
+
+
+def starts_sentence(text, position):
+    """Whether the word at `position` is the first of its sentence."""
+    i = position - 1
+    while i >= 0 and text[i] in BETWEEN_SENTENCES:
+        i -= 1
+    return i < 0 or text[i] in SENTENCE_END
 
 
 def load_lemmas(path):
@@ -88,15 +103,14 @@ class Checker:
             if self.found(word) or ('-' in word and all(self.found(part) for part in word.split('-'))):
                 yield raw, 'found', word
                 continue
-            before = text[:match.start()]
-            if AFTER_NUMBER.search(before):
+            if len(word) <= NUMBER_TAIL and after_number(text, match.start()):
                 yield raw, 'skipped', 'after a number'
                 continue
             if len(raw) > 1 and raw.isupper():
                 yield raw, 'skipped', 'in capitals'
                 continue
             capitalized = raw[0].isupper()
-            if capitalized and not SENTENCE_START.search(before):
+            if capitalized and not starts_sentence(text, match.start()):
                 yield raw, 'skipped', 'capitalized inside a sentence'
                 continue
             # the one-letter words ("а", "и", "в", "я") are all in the dictionary; what is left is a

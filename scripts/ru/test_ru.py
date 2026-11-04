@@ -97,6 +97,22 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(unknown, ['демоница', 'форекс'])  # at the start of a sentence: not a name for sure
         self.assertEqual(skipped, ['Хаттлстоун'])
 
+    def test_sentence_starts_after_closing_quotes_and_brackets(self):
+        missing, unknown, skipped = self.check('«Кто здесь?» Площадка пуста. (Кот.) Собака — друг.\nЛошадь')
+        self.assertEqual(missing, ['друг', 'здесь', 'кто', 'лошадь', 'площадка', 'пустой', 'собака'])
+        self.assertEqual(skipped, [])
+
+    def test_only_a_short_tail_after_a_number_is_skipped(self):
+        missing, unknown, skipped = self.check('3-комнатная, 5-этажный, 100-летие, 6-го')
+        self.assertEqual((missing, unknown, skipped), (['комнатный', 'летие', 'этажный'], [], ['го']))
+
+    def test_long_text_is_checked_in_linear_time(self):
+        import time
+        text = 'собака ' * 20000
+        started = time.monotonic()
+        self.check(text)
+        self.assertLess(time.monotonic() - started, 5)
+
     def test_unknown_word_is_listed_as_written(self):
         missing, unknown, skipped = self.check('Хаттлстоун далеко. Мбит мало, й')
         self.assertEqual((missing, unknown, skipped), (['далеко', 'мало'], ['мбит', 'хаттлстоун'], ['й']))
