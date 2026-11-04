@@ -48,10 +48,11 @@ def is_word(text):
 
 
 def looks_like_lemma(tag):
-    """A parse in which the word is the dictionary form of its paradigm."""
+    """A parse in which the word is the dictionary form of its paradigm. A plural nominative counts
+    too: the sheet writes "деньги", which pymorphy normalizes to "деньга", and check.py must find it."""
     if tag.POS in ('INFN', 'ADVB', 'PREP', 'CONJ', 'PRCL', 'INTJ', 'PRED', 'COMP', 'GRND'):
         return True
-    return 'nomn' in tag and ('sing' in tag or 'Pltm' in tag or tag.number is None)
+    return 'nomn' in tag
 
 
 def dict_lemmas(word):
