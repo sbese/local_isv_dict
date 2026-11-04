@@ -39,8 +39,9 @@ WORD = re.compile(r'[а-яё]+(?:-[а-яё]+)*', re.IGNORECASE)
 NUMBER_TAIL = 3
 # a sentence ends with one of these, or at the end of a line…
 SENTENCE_END = set('.!?…:;\n')
-# …possibly followed by quotes, brackets, dashes and spaces before the next one starts
-BETWEEN_SENTENCES = set(' \t\u00a0«»"„“”\'()[]—–-')
+# …possibly followed by quotes, brackets, dashes and spaces (any Unicode space, see below) before
+# the next one starts
+BETWEEN_SENTENCES = set('«»"„“”\'()[]—–-')
 
 DATA = Path(os.environ.get('ISV_DICT_DATA_DIR') or ROOT / 'data').resolve()  # as in src/data.js
 
@@ -73,7 +74,7 @@ def after_number(text, position):
 def starts_sentence(text, position):
     """Whether the word at `position` is the first of its sentence."""
     i = position - 1
-    while i >= 0 and text[i] in BETWEEN_SENTENCES:
+    while i >= 0 and (text[i] in BETWEEN_SENTENCES or (text[i].isspace() and text[i] != '\n')):
         i -= 1
     return i < 0 or text[i] in SENTENCE_END
 

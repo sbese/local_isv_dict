@@ -101,6 +101,9 @@ class CheckTest(unittest.TestCase):
         missing, unknown, skipped = self.check('«Кто здесь?» Площадка пуста. (Кот.) Собака — друг.\nЛошадь')
         self.assertEqual(missing, ['друг', 'здесь', 'кто', 'лошадь', 'площадка', 'пустой', 'собака'])
         self.assertEqual(skipped, [])
+        # a narrow no-break space (U+202F) and an em space (U+2003) are spaces too
+        missing, unknown, skipped = self.check(f'Дом.{chr(0x202f)}Площадка пуста.{chr(0x2003)}Собака')
+        self.assertEqual((missing, skipped), (['площадка', 'пустой', 'собака'], []))
 
     def test_only_a_short_tail_after_a_number_is_skipped(self):
         missing, unknown, skipped = self.check('3-комнатная, 5-этажный, 100-летие, 6-го')
